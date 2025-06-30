@@ -3,9 +3,9 @@ import express, { Request, Response } from "express";
 import { createServer } from "http";
 import path from "path";
 import { Server, Socket } from "socket.io";
-import { generateRoomId } from "./utils/id-generator";
+import { generateRoomId } from "./utils/id-generator.js";
 
-import "./types";
+import "./types.js";
 
 const app = express();
 const server = createServer(app);
