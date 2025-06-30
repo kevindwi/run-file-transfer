@@ -148,7 +148,7 @@ function App() {
     });
 
     // Handle answer (initiator)
-    newSocket.on("answer", async ({ sdp, from, roomId: answerRoomId }) => {
+    newSocket.on("answer", async ({ sdp, from }) => {
       console.log("Received answer from:", from);
 
       if (!isRoomCreator) {
