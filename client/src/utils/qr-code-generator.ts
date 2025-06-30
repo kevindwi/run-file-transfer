@@ -6,7 +6,9 @@ export const generateQRCode = async (data: string, elementId: string) => {
       elementId,
     ) as HTMLCanvasElement;
     if (canvasElement) {
-      await QRCode.toCanvas(canvasElement, data);
+      await QRCode.toCanvas(canvasElement, data, {
+        width: 150,
+      });
     }
     const room = document.getElementById("roomId") as HTMLHeadElement;
     room.innerHTML = data;
