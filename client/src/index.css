@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+body {
+  @apply scroll-smooth;
+
+  font-family: "Inter", sans-serif;
+}
+
 /* .svg-area {
     display: block;
     margin: 0 auto 1rem;
