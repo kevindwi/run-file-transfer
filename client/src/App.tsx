@@ -1,10 +1,18 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
 
 import QrScanner, { type QrScannerHandle } from "./componets/QRScanner";
+import {
+  closeConnection,
+  createPeerConnection,
+  dataChannel,
+  handleAnswer,
+  handleIceCandidate,
+  handleOffer,
+  isPeerConnectionExists,
+  sendData,
+} from "./config/WebRTC";
 import { generateQRCode } from "./utils/qr-code-generator";
-
-// import { Toast } from "./componets/Toast";
 
 function App() {
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -14,6 +22,118 @@ function App() {
   // QR
   const scannerRef = useRef<QrScannerHandle>(null);
 
+  useEffect(() => {
+    const newSocket = io(
+      process.env.VITE_SIGNALING_SERVER_URL || "ws://localhost:3001",
+      {
+        transports: ["websocket", "polling"],
+      },
+    );
+
+    setSocket(newSocket);
+    let isRoomCreator = false;
+
+    newSocket.on("connect", () => {
+      console.log("Connected to signaling server");
+    });
+
+    newSocket.on("disconnect", () => {
+      setConnected(false);
+      setRoomId("");
+      console.log("Disconnected from signaling server");
+      closeConnection();
+    });
+
+    // Create room (initiator)
+    newSocket.emit("create-room", (roomId: string) => {
+      console.log("Room created:", roomId);
+      isRoomCreator = true; // initiator
+      setConnected(false);
+      setRoomId(roomId);
+      generateQRCode(roomId, "qr-code");
+    });
+
+    newSocket.on("user-joined", (userId, joinedRoomId) => {
+      console.log(`User ${userId} joined room ${joinedRoomId}`);
+
+      // Cek apakah user yang join adalah diri sendiri
+      if (userId === newSocket.id) {
+        return;
+      }
+
+      setConnected(true);
+      setRoomId(joinedRoomId);
+
+      console.log("I am room creator, creating peer connection as initiator");
+      createPeerConnection(newSocket, joinedRoomId, true, (msg) => {
+        console.log("Received message:", msg);
+      });
+    });
+
+    // User left
+    newSocket.on("user-left", (userId) => {
+      console.log(`User ${userId} left the room`);
+      setConnected(false);
+      closeConnection();
+    });
+
+    // Handle offer
+    newSocket.on("offer", async ({ sdp, from, roomId: offerRoomId }) => {
+      console.log("Received offer from:", from, "for room:", offerRoomId);
+
+      if (from !== newSocket.id) {
+        if (!isPeerConnectionExists()) {
+          console.error("No peer connection exists!");
+          await createPeerConnection(newSocket, offerRoomId, false, (msg) => {
+            console.log("Received message:", msg);
+          });
+        }
+
+        // Handle offer dan buat answer
+        await handleOffer(newSocket, offerRoomId, sdp, (msg) => {
+          console.log("Received message:", msg);
+        });
+      } else {
+        console.error("Room creator received offer - this shouldn't happen!");
+      }
+    });
+
+    // Handle answer (initiator)
+    newSocket.on("answer", async ({ sdp, from, roomId: answerRoomId }) => {
+      console.log("Received answer from:", from, "for room:", answerRoomId);
+
+      if (!isRoomCreator) {
+        console.error(
+          "Non-room-creator received answer - this shouldn't happen!",
+        );
+        return;
+      }
+
+      await handleAnswer(sdp);
+    });
+
+    // Handle ICE candidates
+    newSocket.on(
+      "ice-candidate",
+      async ({ candidate, from, roomId: iceRoomId }) => {
+        console.log(
+          "Received ICE candidate from:",
+          from,
+          "for room:",
+          iceRoomId,
+        );
+        await handleIceCandidate(candidate);
+      },
+    );
+
+    // Cleanup on unmount
+    return () => {
+      console.log("Cleaning up socket connection");
+      newSocket.disconnect();
+      closeConnection();
+    };
+  }, []);
+
   const handleStartScan = () => {
     scannerRef.current?.startScan();
   };
@@ -22,12 +142,15 @@ function App() {
     handleJoinRoom(roomId);
   };
 
-  // const displayMsg = () => {
-  //   toast(Toast);
-  // };
-
   const handleJoinRoom = (roomId: string) => {
-    socket?.emit(
+    if (!socket) {
+      console.error("Socket not connected");
+      return;
+    }
+
+    console.log("Attempting to join room:", roomId);
+
+    socket.emit(
       "join-room",
       roomId,
       (response: { success: boolean; roomId?: string; error?: string }) => {
@@ -35,50 +158,22 @@ function App() {
           console.log("Successfully joined room:", response.roomId);
           setConnected(true);
           setRoomId(response.roomId || "");
+
+          console.log("I am joiner, creating peer connection as receiver");
+          createPeerConnection(socket, response.roomId || "", false, (msg) => {
+            console.log("Received message:", msg);
+          });
         } else {
           console.error("Failed to join room:", response.error);
           setConnected(false);
           setRoomId("");
+          alert(response.error || "Failed to join room");
         }
       },
     );
   };
 
-  useEffect(() => {
-    const newSocket = io("ws://192.168.1.5:3001", {
-      transports: ["websocket", "polling"],
-    });
-
-    setSocket(newSocket);
-
-    newSocket.on("connect", () => {
-      console.log("Connected to signaling server.");
-    });
-
-    newSocket.emit("create-room", (roomId: string) => {
-      console.log("Room created:", roomId);
-      setConnected(false);
-      setRoomId(roomId); // room created but no client connected
-      generateQRCode(roomId, "qr-code");
-    });
-
-    newSocket.on("user-joined", (userId) => {
-      setConnected(true);
-      console.log(`User ${userId} joined the room`);
-    });
-
-    newSocket.on("user-left", (userId) => {
-      console.log(`User ${userId} left the room`);
-    });
-
-    newSocket.on("disconnect", () => {
-      setConnected(false);
-      setRoomId("");
-      console.log("Connected to signaling server.");
-    });
-  }, []);
-
-  const handleSubmitCode = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmitCode = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const roomId = formData.get("deviceCode") as string;
@@ -86,6 +181,23 @@ function App() {
     if (!roomId) return;
 
     handleJoinRoom(roomId);
+  };
+
+  const handleUpload = () => {
+    if (!dataChannel) {
+      console.error("DataChannel not initialized");
+      return;
+    }
+
+    if (dataChannel.readyState !== "open") {
+      console.error(
+        "DataChannel not open, current state:",
+        dataChannel.readyState,
+      );
+      return;
+    }
+
+    sendData("Hello World");
   };
 
   return (
@@ -171,6 +283,14 @@ function App() {
                 </label>
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={handleUpload}
+              className="text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-4 focus:ring-gray-300 font-medium rounded-full text-sm px-5 py-2 w-full"
+            >
+              Upload
+            </button>
           </div>
         ) : (
           <div className="flex flex-col w-xs gap-y-3">
@@ -183,7 +303,6 @@ function App() {
             </div>
 
             <div className="flex flex-col justify-center items-center rounded-2xl px-6 py-6 bg-white gap-y-2">
-              {/* <h1 className="font-medium text-xl mb-3">Connect device</h1> */}
               <form onSubmit={handleSubmitCode}>
                 <input
                   type="text"
