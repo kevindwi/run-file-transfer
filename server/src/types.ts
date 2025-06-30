@@ -2,7 +2,7 @@ interface ServerToClientEvents {
   noArg: () => void;
   message: (data: string) => void;
   "room-created": (roomId: string) => void;
-  "user-joined": (userId: string) => void;
+  "user-joined": (userId: string, roomId: string) => void;
   "user-left": (userId: string) => void;
 }
 
