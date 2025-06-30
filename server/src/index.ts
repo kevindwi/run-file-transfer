@@ -27,6 +27,13 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
+app.get("/", (_req: Request, res: Response) => {
+  res.json({
+    status: "ok",
+    message: "hello, world",
+  });
+});
+
 app.get("/health", (_req: Request, res: Response) => {
   res.json({
     status: "ok",
