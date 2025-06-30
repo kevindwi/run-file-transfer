@@ -5,12 +5,10 @@ import QrScanner, { type QrScannerHandle } from "./componets/QRScanner";
 import {
   closeConnection,
   createPeerConnection,
-  dataChannel,
   handleAnswer,
   handleIceCandidate,
   handleOffer,
   isPeerConnectionExists,
-  sendData,
   sendFile,
 } from "./config/WebRTC";
 import { generateQRCode } from "./utils/qr-code-generator";
@@ -284,27 +282,26 @@ function App() {
   };
 
   return (
-    <main className="bg-blue-50 w-full h-screen p-5">
-      <nav className="flex justify-between mb-10">
-        <div>
-          <span>Device name</span>
-          <h1 className="text-xl font-medium">xenonx</h1>
+    <main className="w-full h-screen bg-white">
+      <nav className="fixed w-full z-20 top-0 start-0 flex justify-between bg-white/30 backdrop-blur-md px-4 md:px-42 py-3 border-b-1 border-b-slate-100">
+        <div className="flex items-center">
+          <h1 className="text-2xl font-medium">run</h1>
         </div>
         <div className="flex items-center gap-3">
           {connected ? (
-            <div className="flex items-center gap-2 text-green-600">
-              {/* <Wifi className="w-5 h-5" /> */}
-              <span className="text-sm font-medium">Connected</span>
+            <div className="flex items-center gap-2 text-gray-500">
+              <span className="text-sm font-medium px-4 py-2">
+                Connected to: <span className="text-gray-500">{roomId}</span>
+              </span>
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-gray-400">
-              {/* <WifiOff className="w-5 h-5" /> */}
-              <span className="text-sm font-medium">Waiting</span>
+            <div className="flex items-center gap-2 text-gray-500">
+              <span className="text-sm font-medium px-4 py-1.5">Waiting</span>
             </div>
           )}
           <button
             onClick={handleStartScan}
-            className="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            className="bg-black hover:bg-black/75 text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors"
           >
             Scan QR
           </button>
@@ -316,32 +313,35 @@ function App() {
         onScanSuccess={(text) => handleScanSuccess(text)}
       />
 
-      <div className="flex justify-center items-center">
+      <div className="flex flex-col justify-center items-center mt-26 pb-32 gap-6">
+        <div className="flex flex-col justify-center items-center text-center gap-3 md:gap-5">
+          <h1 className="text-4xl md:text-5xl font-medium md:font-medium leading-12 md:leading-16 w-xs md:w-md">
+            Send files with just single click
+          </h1>
+          <p className="text-lg text-gray-500 w-xs md:w-md mb-6">
+            Run is a super simple tool for transfer file with just a single
+            click
+          </p>
+        </div>
+
         {connected ? (
           <div className="space-y-4">
-            {/* Connection Status */}
-            <div className="bg-white rounded-xl p-4 shadow-sm">
-              <h2 className="font-semibold text-gray-800 mb-2">
-                Connected to: {roomId}
-              </h2>
-            </div>
-
             {/* File Upload Area */}
-            <div className="bg-white rounded-xl p-6 shadow-sm">
-              <h3 className="font-semibold text-gray-800 mb-4">Send File</h3>
+            <div className="bg-white border border-slate-200 rounded-2xl p-4">
+              <h3 className="font-medium text-black mb-4">
+                Upload file to send
+              </h3>
 
               <div
-                className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors cursor-pointer"
+                className="w-[240px] h-[200px] flex flex-col justify-center border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors cursor-pointer"
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
                 onClick={() => fileInputRef.current?.click()}
               >
-                {/* <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" /> */}
-                <p className="text-gray-600 mb-2">
+                <p className="text-sm text-gray-600 mb-2">
                   <span className="font-semibold">Click to upload</span> or drag
                   and drop
                 </p>
-                <p className="text-sm text-gray-400">Any file up to 100MB</p>
               </div>
 
               <input
@@ -370,8 +370,8 @@ function App() {
 
             {/* Download Progress */}
             {isDownloading && (
-              <div className="bg-white rounded-xl p-4 shadow-sm">
-                <h3 className="font-semibold text-gray-800 mb-3">
+              <div className="bg-white rounded-2xl border border-slate-200 p-4">
+                <h3 className="font-semibold text-black mb-3">
                   Receiving File
                 </h3>
                 <div className="flex justify-between text-sm text-gray-600 mb-1">
@@ -389,28 +389,24 @@ function App() {
 
             {/* Received Files */}
             {receivedFiles.length > 0 && (
-              <div className="bg-white rounded-xl p-4 shadow-sm">
-                <h3 className="font-semibold text-gray-800 mb-3">
-                  Received Files
-                </h3>
+              <div className="bg-white rounded-2xl border border-slate-200 p-4">
+                <h3 className="font-medium text-black mb-3">Received Files</h3>
                 <div className="space-y-2">
                   {receivedFiles.map((file, index) => (
                     <div
                       key={index}
-                      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                      className="flex items-center justify-between px-4 py-3 bg-gray-100 hover:bg-gray-200 rounded-lg"
                     >
                       <div className="flex items-center gap-3">
-                        {/* {getFileIcon(file)} */}
                         <div>
-                          <p className="font-medium text-gray-800 truncate max-w-32">
+                          <p className="font-medium text-black truncate max-w-32">
                             {file.name}
                           </p>
-                          {/* <p className="text-sm text-gray-500">{formatFileSize(file.size)}</p> */}
                         </div>
                       </div>
                       <button
                         onClick={() => downloadFile(file)}
-                        className="bg-green-600 hover:bg-green-700 text-white p-2 rounded-lg transition-colors"
+                        className="text-black"
                       >
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
@@ -434,8 +430,8 @@ function App() {
             )}
           </div>
         ) : (
-          <div className="flex flex-col w-xs gap-y-3">
-            <div className="flex flex-col justify-center items-center rounded-2xl px-6 py-6 bg-white gap-y-1">
+          <div className="flex flex-col w-2xs gap-y-3">
+            <div className="flex flex-col justify-center items-center rounded-2xl px-4 py-4 bg-white border border-slate-200 gap-y-1">
               <h1 className="font-medium">Scan or enter code to connect</h1>
               <canvas id="qr-code"></canvas>
               <h3 id="roomId" className="font-medium">
@@ -443,29 +439,28 @@ function App() {
               </h3>
             </div>
 
-            <div className="flex flex-col justify-center items-center rounded-2xl px-6 py-6 bg-white gap-y-2">
-              <form onSubmit={handleSubmitCode}>
-                <input
-                  type="text"
-                  name="deviceCode"
-                  className="border border-gray-300 rounded-full text-sm px-4 py-2 mb-1 placeholder-slate-300 w-full"
-                  placeholder="Code from other device"
-                />
-                <button
-                  type="submit"
-                  className="text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-4 focus:ring-gray-300 font-medium rounded-full text-sm px-5 py-2 w-full"
-                >
-                  Connect
-                </button>
-              </form>
-            </div>
+            <form
+              onSubmit={handleSubmitCode}
+              className="flex flex-col justify-center items-center rounded-2xl px-4 py-4 bg-white border border-slate-200 gap-y-1"
+            >
+              <input
+                type="text"
+                name="deviceCode"
+                className="border border-gray-300 rounded-lg text-sm px-4 py-1.5 mb-1 placeholder-gray-300 w-full"
+                placeholder="Code from other device"
+              />
+              <button
+                type="submit"
+                className="text-white bg-black hover:bg-black/75 focus:outline-none focus:ring-4 focus:ring-gray-300 font-medium rounded-lg text-sm px-5 py-1.5 w-full"
+              >
+                Connect
+              </button>
+            </form>
           </div>
         )}
       </div>
 
-      <div>
-        <ToastContainer autoClose={5000} />
-      </div>
+      <ToastContainer autoClose={5000} />
     </main>
   );
 }
