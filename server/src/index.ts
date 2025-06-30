@@ -5,6 +5,11 @@ import path from "path";
 import { Server, Socket } from "socket.io";
 import { generateRoomId } from "./utils/id-generator.js";
 
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 import "./types.js";
 
 const app = express();
