@@ -5,6 +5,28 @@ export let dataChannel: RTCDataChannel;
 let remoteDescriptionSet = false;
 let pendingCandidates: RTCIceCandidateInit[] = [];
 
+// File transfer constants
+const CHUNK_SIZE = 16384; // 16KB chunks
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB limit
+
+// File transfer state
+interface FileTransfer {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  chunks: ArrayBuffer[];
+  receivedSize: number;
+  totalChunks: number;
+  receivedChunks: number;
+}
+
+let currentFileTransfer: FileTransfer | null = null;
+let onFileReceived: ((file: File) => void) | null = () => {};
+let onProgress:
+  | ((progress: number, type: "send" | "receive") => void)
+  | null = () => {};
+
 export const isPeerConnectionExists = () => !!peerConnection;
 
 /**
@@ -20,16 +42,16 @@ export const createPeerConnection = async (
   roomId: string,
   isInitiator: boolean,
   onMessage: (data: string) => void,
+  onFileReceivedCallback?: (file: File) => void,
+  onProgressCallback?: (progress: number, type: "send" | "receive") => void,
 ) => {
-  // agar tidak ada koneksi yang double
-  if (peerConnection && peerConnection.connectionState !== "closed") {
-    console.log("PeerConnection already exists, closing old one");
+  if (peerConnection) {
     peerConnection.close();
   }
 
-  console.log(
-    `Creating PeerConnection - Role: ${isInitiator ? "INITIATOR" : "RECEIVER"}`,
-  );
+  // Set callbacks
+  onFileReceived = onFileReceivedCallback || null;
+  onProgress = onProgressCallback || null;
 
   peerConnection = new RTCPeerConnection({
     iceServers: [
@@ -39,11 +61,10 @@ export const createPeerConnection = async (
   });
 
   if (roomId === "") {
-    console.error("roomId cannot be empty");
+    console.error("roomId tidak boleh kosong");
     return;
   }
 
-  // Reset state
   remoteDescriptionSet = false;
   pendingCandidates = [];
 
@@ -54,8 +75,6 @@ export const createPeerConnection = async (
         roomId,
         candidate: event.candidate,
       });
-    } else {
-      console.log("ICE gathering complete");
     }
   };
 
@@ -78,6 +97,7 @@ export const createPeerConnection = async (
     console.log("Creating data channel as initiator");
     dataChannel = peerConnection.createDataChannel("fileChannel", {
       ordered: true,
+      maxRetransmits: 3,
     });
     setupDataChannel(onMessage);
   } else {
@@ -121,8 +141,7 @@ const setupDataChannel = (onMessage: (data: string) => void) => {
   };
 
   dataChannel.onmessage = (event) => {
-    console.log("DataChannel message received:", event.data);
-    onMessage(event.data);
+    handleDataChannelMessage(event.data, onMessage);
   };
 
   dataChannel.onerror = (error) => {
@@ -132,6 +151,171 @@ const setupDataChannel = (onMessage: (data: string) => void) => {
   dataChannel.onclose = () => {
     console.log("DataChannel closed");
   };
+};
+
+const handleDataChannelMessage = (
+  data: any,
+  onMessage: (data: string) => void,
+) => {
+  try {
+    // Try to parse as JSON first (metadata)
+    const message = JSON.parse(data);
+
+    if (message.type === "file-start") {
+      console.log("Starting file transfer:", message.name);
+      currentFileTransfer = {
+        id: message.id,
+        name: message.name,
+        size: message.size,
+        type: message.fileType,
+        chunks: [],
+        receivedSize: 0,
+        totalChunks: Math.ceil(message.size / CHUNK_SIZE),
+        receivedChunks: 0,
+      };
+
+      if (onProgress) {
+        onProgress(0, "receive");
+      }
+      return;
+    }
+
+    if (message.type === "file-end") {
+      console.log("File transfer completed");
+      if (currentFileTransfer && currentFileTransfer.id === message.id) {
+        reconstructFile();
+      }
+      return;
+    }
+
+    // Regular text message
+    if (message.type === "text") {
+      console.log("Text message:", message.data);
+      onMessage(message.data);
+      return;
+    }
+  } catch (e) {
+    // Data is binary (file chunk)
+    if (currentFileTransfer) {
+      currentFileTransfer.chunks.push(data);
+      currentFileTransfer.receivedChunks++;
+      currentFileTransfer.receivedSize += data.byteLength;
+
+      const progress =
+        (currentFileTransfer.receivedSize / currentFileTransfer.size) * 100;
+      console.log(
+        `Received chunk ${currentFileTransfer.receivedChunks}/${currentFileTransfer.totalChunks} (${progress.toFixed(1)}%)`,
+      );
+
+      if (onProgress) {
+        onProgress(progress, "receive");
+      }
+
+      if (
+        currentFileTransfer.receivedChunks === currentFileTransfer.totalChunks
+      ) {
+        reconstructFile();
+      }
+    }
+  }
+};
+
+const reconstructFile = () => {
+  if (!currentFileTransfer) return;
+
+  console.log("🔄 Reconstructing file:", currentFileTransfer.name);
+
+  const totalSize = currentFileTransfer.chunks.reduce(
+    (acc, chunk) => acc + chunk.byteLength,
+    0,
+  );
+  const fileData = new Uint8Array(totalSize);
+
+  let offset = 0;
+  for (const chunk of currentFileTransfer.chunks) {
+    fileData.set(new Uint8Array(chunk), offset);
+    offset += chunk.byteLength;
+  }
+
+  const file = new File([fileData], currentFileTransfer.name, {
+    type: currentFileTransfer.type,
+  });
+
+  console.log("File reconstructed:", file.name, file.size, "bytes");
+  onFileReceived?.(file);
+
+  currentFileTransfer = null;
+};
+
+// File sending functions
+export const sendFile = async (file: File): Promise<boolean> => {
+  if (!dataChannel || dataChannel.readyState !== "open") {
+    console.error("DataChannel not ready");
+    return false;
+  }
+
+  if (file.size > MAX_FILE_SIZE) {
+    console.error("File too large:", file.size, "bytes. Max:", MAX_FILE_SIZE);
+    return false;
+  }
+
+  console.log("Starting file transfer:", file.name, file.size, "bytes");
+
+  const fileId = generateFileId();
+  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+  // Send file metadata
+  const metadata = {
+    type: "file-start",
+    id: fileId,
+    name: file.name,
+    size: file.size,
+    fileType: file.type,
+    totalChunks,
+  };
+
+  dataChannel.send(JSON.stringify(metadata));
+
+  // Send file in chunks
+  const arrayBuffer = await file.arrayBuffer();
+  let offset = 0;
+  let chunkIndex = 0;
+
+  while (offset < arrayBuffer.byteLength) {
+    const chunk = arrayBuffer.slice(offset, offset + CHUNK_SIZE);
+
+    // Wait for buffer to clear if needed
+    while (dataChannel.bufferedAmount > CHUNK_SIZE * 3) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    dataChannel.send(chunk);
+
+    offset += CHUNK_SIZE;
+    chunkIndex++;
+
+    const progress = (offset / arrayBuffer.byteLength) * 100;
+    console.log(
+      `Sent chunk ${chunkIndex}/${totalChunks} (${progress.toFixed(1)}%)`,
+    );
+
+    onProgress?.(Math.min(progress, 100), "send");
+  }
+
+  // Send completion signal
+  const endSignal = {
+    type: "file-end",
+    id: fileId,
+  };
+
+  dataChannel.send(JSON.stringify(endSignal));
+  console.log("File transfer completed:", file.name);
+
+  return true;
+};
+
+const generateFileId = (): string => {
+  return Date.now().toString() + Math.random().toString(36).substr(2, 9);
 };
 
 export const handleOffer = async (
