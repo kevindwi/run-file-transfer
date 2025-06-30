@@ -139,9 +139,7 @@ function App() {
         }
 
         // Handle offer dan buat answer
-        await handleOffer(newSocket, offerRoomId, sdp, (msg) => {
-          console.log("Received message:", msg);
-        });
+        await handleOffer(newSocket, offerRoomId, sdp);
       } else {
         console.error("Room creator received offer - this shouldn't happen!");
       }

@@ -322,7 +322,6 @@ export const handleOffer = async (
   socket: Socket,
   roomId: string,
   sdp: RTCSessionDescriptionInit,
-  onMessage: (data: string) => void,
 ) => {
   try {
     console.log("Handling offer...");
