@@ -179,7 +179,11 @@ io.on("connection", (socket: Socket) => {
   });
 });
 
-const PORT = process.env.PORT || 3001;
+if (!process.env.PORT) {
+  throw new Error("PORT is required in environment");
+}
+
+const PORT = parseInt(process.env.PORT);
 server.listen(PORT, () => {
   console.log(`Signaling server running on port ${PORT}`);
   console.log(`WebSocket server ready for connections`);
